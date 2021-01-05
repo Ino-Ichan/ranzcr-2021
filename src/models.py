@@ -7,7 +7,7 @@ import timm
 class Net(nn.Module):
     def __init__(self, name="resnest101e"):
         super(Net, self).__init__()
-        self.model = timm.create_model(name, pretrained=True, num_classes=5)
+        self.model = timm.create_model(name, pretrained=True, num_classes=11)
 
     def forward(self, x):
         x = self.model(x).squeeze(-1)
@@ -17,7 +17,7 @@ class Net(nn.Module):
 class Effnet(nn.Module):
     def __init__(self, name="tf_efficientnet_b6_ns"):
         super(Effnet, self).__init__()
-        self.model = timm.create_model(name, pretrained=True, num_classes=5)
+        self.model = timm.create_model(name, pretrained=True, num_classes=11)
 
     def forward(self, x):
         x = self.model(x).squeeze(-1)
@@ -28,7 +28,7 @@ class Effnet(nn.Module):
 class RegNet(nn.Module):
     def __init__(self, name="regnety_120"):
         super(RegNet, self).__init__()
-        self.model = timm.create_model(name, pretrained=True, num_classes=5)
+        self.model = timm.create_model(name, pretrained=True, num_classes=11)
 
     def forward(self, x):
         x = self.model(x).squeeze(-1)

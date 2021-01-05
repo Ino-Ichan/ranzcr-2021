@@ -1,11 +1,11 @@
 debug: false
-exp_name: "exp001"
+exp_name: "exp003"
 model_name: "seresnext50_32x4d"
 device_id: 0
-batch_size: 48
+batch_size: 32
 img_size: 512
-n_workers: 10
-n_epochs: 8
+n_workers: 4
+n_epochs: 15
 start_epoch: 1
 transform: true
 load_checkpoint:

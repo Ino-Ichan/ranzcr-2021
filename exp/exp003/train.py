@@ -102,7 +102,7 @@ def forward(data, model, device, criterion, mode="train"):
 def get_train_transforms(image_size):
     return albumentations.Compose([
         albumentations.Resize(image_size, image_size, p=1),
-        albumentations.ShiftScaleRotate(shift_limit=(-0.1, 0.1), scale_limit=(-0.5, 0.5), rotate_limit=20, p=0.5),
+        albumentations.ShiftScaleRotate(shift_limit=(-0.1, 0.1), scale_limit=(-0.1, 0.1), rotate_limit=30, p=0.5),
         albumentations.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2,
                                                 brightness_by_max=True, always_apply=False, p=0.5),
         # albumentations.RandomCrop(512, 512, p=1),
@@ -111,7 +111,7 @@ def get_train_transforms(image_size):
         # albumentations.VerticalFlip(p=0.5),
         albumentations.HorizontalFlip(p=0.5),
         # RandomAugMix(severity=5, width=4, depth=4, alpha=1., always_apply=True, p=0.9),
-        albumentations.CoarseDropout(max_holes=3, max_height=75, max_width=75),
+        # albumentations.CoarseDropout(max_holes=3, max_height=75, max_width=75),
         ToTensorV2()
     ], p=1.0)
 

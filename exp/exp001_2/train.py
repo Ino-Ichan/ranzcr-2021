@@ -252,7 +252,7 @@ if __name__ == "__main__":
         LOGGER.info("-" * 10)
 
         optimizer = optim.Adam(model.parameters(), lr=1e-4)
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_dataloader), eta_min=1e-6)
+        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_dataloader), eta_min=1e-6)
 
         # criterion = LabelSmoothingCrossEntropy()
         criterion = nn.BCEWithLogitsLoss(reduction='none')
@@ -345,7 +345,7 @@ if __name__ == "__main__":
 
             print(np.array(pred_list).shape)
             # scheduler
-            scheduler.step(e)
+            # scheduler.step(e)
 
             each_roc = []
             targets_list = np.array(targets_list)

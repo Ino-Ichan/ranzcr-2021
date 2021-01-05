@@ -101,26 +101,49 @@ def forward(data, model, device, criterion, mode="train"):
 
 def get_train_transforms(image_size):
     return albumentations.Compose([
-        albumentations.Resize(image_size, image_size, p=1),
-        albumentations.ShiftScaleRotate(shift_limit=(-0.1, 0.1), scale_limit=(-0.5, 0.5), rotate_limit=20, p=0.5),
-        albumentations.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2,
-                                                brightness_by_max=True, always_apply=False, p=0.5),
-        # albumentations.RandomCrop(512, 512, p=1),
-        albumentations.Blur(blur_limit=3, p=0.3),
-        # albumentations.Transpose(p=0.5),
-        # albumentations.VerticalFlip(p=0.5),
-        albumentations.HorizontalFlip(p=0.5),
-        # RandomAugMix(severity=5, width=4, depth=4, alpha=1., always_apply=True, p=0.9),
-        albumentations.CoarseDropout(max_holes=3, max_height=75, max_width=75),
-        ToTensorV2()
-    ], p=1.0)
+           albumentations.RandomResizedCrop(image_size, image_size, scale=(0.9, 1), p=1),
+           albumentations.HorizontalFlip(p=0.5),
+           albumentations.ShiftScaleRotate(p=0.5),
+           albumentations.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=10, val_shift_limit=10, p=0.7),
+           albumentations.RandomBrightnessContrast(brightness_limit=(-0.2,0.2), contrast_limit=(-0.2, 0.2), p=0.7),
+           albumentations.CLAHE(clip_limit=(1,4), p=0.5),
+           albumentations.OneOf([
+               albumentations.OpticalDistortion(distort_limit=1.0),
+               albumentations.GridDistortion(num_steps=5, distort_limit=1.),
+               albumentations.ElasticTransform(alpha=3),
+           ], p=0.2),
+           albumentations.OneOf([
+               albumentations.GaussNoise(var_limit=[10, 50]),
+               albumentations.GaussianBlur(),
+               albumentations.MotionBlur(),
+               albumentations.MedianBlur(),
+           ], p=0.2),
+          albumentations.Resize(image_size, image_size),
+          albumentations.OneOf([
+              albumentations.augmentations.transforms.JpegCompression(),
+              albumentations.augmentations.transforms.Downscale(scale_min=0.1, scale_max=0.15),
+          ], p=0.2),
+          albumentations.imgaug.transforms.IAAPiecewiseAffine(p=0.2),
+          albumentations.imgaug.transforms.IAASharpen(p=0.2),
+          albumentations.Cutout(max_h_size=int(image_size * 0.1), max_w_size=int(image_size * 0.1), num_holes=5, p=0.5),
+          albumentations.Normalize(
+              mean=[0.485, 0.456, 0.406],
+              std=[0.229, 0.224, 0.225],
+          ),
+          ToTensorV2(p=1)
+])
+
 
 
 def get_val_transforms(image_size):
     return albumentations.Compose([
         albumentations.Resize(image_size, image_size),
-        ToTensorV2()
-    ], p=1.0)
+        albumentations.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+        ToTensorV2(p=1)
+])
 
 
 if __name__ == "__main__":
@@ -228,7 +251,7 @@ if __name__ == "__main__":
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
                                       pin_memory=False, num_workers=n_workers, drop_last=True)
         # plot sample image
-        plot_sample_images(train_dataset, sample_img_path, "train")
+        plot_sample_images(train_dataset, sample_img_path, "train", normalize="imagenet")
 
         val_dataset = RanzcrDataset(df=df_val, image_size=img_size,
                                     image_folder="/data/train_images",
@@ -236,7 +259,7 @@ if __name__ == "__main__":
         val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False,
                                     pin_memory=False, num_workers=n_workers, drop_last=False)
 
-        plot_sample_images(val_dataset, sample_img_path, "val")
+        plot_sample_images(val_dataset, sample_img_path, "val",  normalize="imagenet")
 
         # ==== INIT MODEL
         device = torch.device(device)

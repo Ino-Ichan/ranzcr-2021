@@ -5,7 +5,7 @@ import cv2
 from torch.utils.data import Dataset
 
 
-class CassavaDataset(Dataset):
+class RanzcrDataset(Dataset):
     def __init__(self,
                  df,
                  image_size,
@@ -21,14 +21,20 @@ class CassavaDataset(Dataset):
 
         self.mode = mode
 
+        self.cols = [
+            'ETT - Abnormal', 'ETT - Borderline',
+            'ETT - Normal', 'NGT - Abnormal', 'NGT - Borderline',
+            'NGT - Incompletely Imaged', 'NGT - Normal', 'CVC - Abnormal',
+            'CVC - Borderline', 'CVC - Normal', 'Swan Ganz Catheter Present'
+                     ]
+
     def __len__(self):
         return self.df.shape[0]
 
     def __getitem__(self, index):
         row = self.df.iloc[index]
-        image_name = row.image_id
 
-        img_path = os.path.join(self.image_folder, image_name)
+        img_path = row.img_path
         images = cv2.imread(img_path).astype(np.float32)
         images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
 
@@ -41,15 +47,15 @@ class CassavaDataset(Dataset):
             images = images.transpose(2, 0, 1)
 
         # normalize image
-        images = images / 255
+        # images = images / 255
         # image net normalize
         # images = (images - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
 
         if self.mode == "train":
-            label = row.label
+            label = row[self.cols].values.astype(np.float16)
             return {
                 "image": torch.tensor(images, dtype=torch.float),
-                "target": torch.tensor(label, dtype=torch.long)
+                "target": torch.tensor(label, dtype=torch.float)
             }
         else:
             return {
