@@ -1,0 +1,25 @@
+debug: false
+exp_name: "exp006"
+model_name: "resnest200e"
+device_id: 0
+batch_size: 16
+img_size: 512
+n_workers: 4
+n_epochs: 30
+start_epoch: 1
+transform: true
+load_checkpoint:
+  - ""
+  - ""
+  - ""
+  - ""
+  - ""
+
+hold_out:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+
+df_train_path: "/data/df_train2.csv"

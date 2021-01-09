@@ -9,3 +9,4 @@ RUN conda install -y pandas scikit-learn matplotlib seaborn
 RUN pip install albumentations==0.5.2
 RUN pip install timm==0.3.2
 RUN pip install pytorch-gradcam==0.2.1
+RUN pip install git+https://github.com/ildoonet/pytorch-gradual-warmup-lr.git
