@@ -11,7 +11,8 @@ class RanzcrDataset(Dataset):
                  image_size,
                  image_folder,
                  transform=None,
-                 mode="train"
+                 mode="train",
+                 clahe=False,
                  ):
 
         self.df = df.reset_index(drop=True)
@@ -20,6 +21,9 @@ class RanzcrDataset(Dataset):
         self.transform = transform
 
         self.mode = mode
+        self.clahe = clahe
+        if self.clahe:
+            self.clahe_transform = cv2.createCLAHE(clipLimit=10.0, tileGridSize=(16, 16))
 
         self.cols = [
             'ETT - Abnormal', 'ETT - Borderline',
@@ -38,8 +42,14 @@ class RanzcrDataset(Dataset):
         images = cv2.imread(img_path).astype(np.float32)
         images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
 
-        # if self.image_size != "original":
-        #     images = cv2.resize(images, (self.image_size, self.image_size))
+        if self.clahe:
+            single_channel = images[:, :, 0].astype(np.uint8)
+            single_channel = self.clahe_transform.apply(single_channel)
+            images = np.array([
+                single_channel,
+                single_channel,
+                single_channel
+            ]).transpose(1, 2, 0)
 
         if self.transform is not None:
             images = self.transform(image=images.astype(np.uint8))['image']
@@ -54,7 +64,8 @@ class RanzcrDataset(Dataset):
         if self.mode == "train":
             label = row[self.cols].values.astype(np.float16)
             return {
-                "image": torch.tensor(images, dtype=torch.float),
+                # "image": torch.tensor(images, dtype=torch.float),
+                "image": images,
                 "target": torch.tensor(label, dtype=torch.float)
             }
         else:

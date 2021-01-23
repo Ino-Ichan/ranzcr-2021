@@ -1,0 +1,29 @@
+debug: false
+exp_name: "exp016"
+model_name: "resnet200d"
+device_id: 0
+batch_size: 8
+img_size: 640
+n_workers: 4
+n_epochs: 10
+start_epoch: 0
+transform: true
+load_checkpoint:
+  - "/workspace/output/exp011/model/cv0_weight_checkpoint4.pth"
+  - "/workspace/output/exp011/model/cv1_weight_checkpoint4.pth"
+  - "/workspace/output/exp011/model/cv2_weight_checkpoint4.pth"
+  - "/workspace/output/exp011/model/cv3_weight_checkpoint7.pth"
+  - "/workspace/output/exp011/model/cv4_weight_checkpoint6.pth"
+
+hold_out:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+
+df_train_path: "/data/df_train2.csv"
+
+accumulation_steps: 16
+early_stopping_steps: 2
+freeze_bn: true

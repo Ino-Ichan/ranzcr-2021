@@ -2,7 +2,7 @@ debug: false
 exp_name: "exp010"
 model_name: "seresnet152d_320"
 device_id: 0
-batch_size: 32
+batch_size: 24
 img_size: 512
 n_workers: 4
 n_epochs: 30
@@ -24,6 +24,6 @@ hold_out:
 
 df_train_path: "/data/df_train2.csv"
 
-accumulation_steps: 0
+accumulation_steps: 2
 early_stopping_steps: 5
 freeze_bn: false

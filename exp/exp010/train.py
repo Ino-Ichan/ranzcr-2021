@@ -497,6 +497,7 @@ if __name__ == "__main__":
     #######################################
     ## Save oof
     #######################################
+    np.save(os.path.join(oof_path, "oof"), oof)
     targets_list = oof
     pred_list = df.iloc[1:12].values
     if debug:
@@ -521,5 +522,4 @@ if __name__ == "__main__":
     LOGGER.info(f'SwanGanzCatheterPresent score: {each_roc[10]}')
     LOGGER.info('-' * 20)
 
-    np.save(os.path.join(oof_path, "oof"), oof)
 
