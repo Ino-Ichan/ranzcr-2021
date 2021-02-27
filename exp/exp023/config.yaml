@@ -1,0 +1,33 @@
+debug: false
+exp_name: "exp023"
+model_name: "seresnet152d_320"
+device_id: 0
+batch_size: 8
+img_size: 800
+n_workers: 4
+n_epochs: 30
+start_epoch: 0
+transform: true
+load_checkpoint:
+  - "/workspace/output/exp010/model/cv0_weight_checkpoint19.pth"
+  - "/workspace/output/exp010/model/cv1_weight_checkpoint15.pth"
+  - "/workspace/output/exp010/model/cv2_weight_checkpoint15.pth"
+  - "/workspace/output/exp010/model/cv3_weight_checkpoint18.pth"
+  - "/workspace/output/exp010/model/cv4_weight_checkpoint15.pth"
+
+hold_out:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+
+df_train_path: "/data/df_train2.csv"
+img_dir: "/data/train1280"
+
+accumulation_steps: 4
+early_stopping_steps: 4
+freeze_bn: true
+
+clahe: false
+mix: false

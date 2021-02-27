@@ -23,6 +23,7 @@ hold_out:
   - 4
 
 df_train_path: "/data/df_train2.csv"
+img_dir: "/data/train1280"
 
 accumulation_steps: 16
 early_stopping_steps: 3

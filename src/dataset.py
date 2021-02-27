@@ -10,19 +10,23 @@ class RanzcrDataset(Dataset):
                  df,
                  image_size,
                  image_folder,
+                 from_image_folder=False,
                  transform=None,
                  mode="train",
                  clahe=False,
+                 mix=False,
                  ):
 
         self.df = df.reset_index(drop=True)
         self.image_size = image_size
         self.image_folder = image_folder
+        self.from_image_folder = from_image_folder
         self.transform = transform
 
         self.mode = mode
         self.clahe = clahe
-        if self.clahe:
+        self.mix = mix
+        if self.clahe or self.mix:
             self.clahe_transform = cv2.createCLAHE(clipLimit=10.0, tileGridSize=(16, 16))
 
         self.cols = [
@@ -38,7 +42,10 @@ class RanzcrDataset(Dataset):
     def __getitem__(self, index):
         row = self.df.iloc[index]
 
-        img_path = row.img_path
+        if self.from_image_folder:
+            img_path = os.path.join(self.image_folder, row["StudyInstanceUID"] + ".jpg")
+        else:
+            img_path = row.img_path
         images = cv2.imread(img_path).astype(np.float32)
         images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
 
@@ -49,6 +56,15 @@ class RanzcrDataset(Dataset):
                 single_channel,
                 single_channel,
                 single_channel
+            ]).transpose(1, 2, 0)
+        elif self.mix:
+            single_channel = images[:, :, 0].astype(np.uint8)
+            clahe_channel = self.clahe_transform.apply(single_channel)
+            hist_channel = cv2.equalizeHist(single_channel)
+            images = np.array([
+                single_channel,
+                clahe_channel,
+                hist_channel
             ]).transpose(1, 2, 0)
 
         if self.transform is not None:
