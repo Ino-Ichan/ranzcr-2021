@@ -10,3 +10,4 @@ RUN pip install albumentations==0.5.2
 RUN pip install timm==0.3.4
 RUN pip install pytorch-gradcam==0.2.1
 RUN pip install git+https://github.com/ildoonet/pytorch-gradual-warmup-lr.git
+RUN pip install segmentation-models-pytorch==0.1.3
