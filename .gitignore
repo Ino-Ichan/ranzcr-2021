@@ -1,6 +1,12 @@
 output
 !output/.gitkeep
 
+output_cvc
+!output_cvc/.gitkeep
+
 # Jupyter Notebook
 .ipynb_checkpoints
 
+.Trash-0
+
+__pycache__/

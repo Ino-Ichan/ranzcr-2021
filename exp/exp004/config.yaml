@@ -1,5 +1,5 @@
 debug: false
-exp_name: "exp004"
+exp_name: "exp005"
 model_name: "resnest200e"
 device_id: 0
 batch_size: 16
