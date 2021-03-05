@@ -1,0 +1,34 @@
+debug: false
+exp_name: "cvc_exp009_test1"
+#model_name: "resnest101e"
+model_name: "timm-resnest50d"
+device_id: 0
+batch_size: 24
+img_size: 512
+n_workers: 4
+n_epochs: 30
+start_epoch: 1
+transform: true
+load_checkpoint:
+  - "/workspace/output_cvc/cvc_exp009/model/cv0_weight_checkpoint27.pth"
+  - "/workspace/output_cvc/cvc_exp009/model/cv1_weight_checkpoint25.pth"
+  - "/workspace/output_cvc/cvc_exp009/model/cv2_weight_checkpoint23.pth"
+  - "/workspace/output_cvc/cvc_exp009/model/cv3_weight_checkpoint23.pth"
+  - "/workspace/output_cvc/cvc_exp009/model/cv4_weight_checkpoint23.pth"
+
+hold_out:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+
+df_train_path: "/data/df_train3.csv"
+img_dir: "/data/train512"
+
+accumulation_steps: 1
+early_stopping_steps: 5
+freeze_bn: false
+
+clahe: false
+mix: false
