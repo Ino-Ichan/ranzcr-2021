@@ -1,33 +1,32 @@
-from tqdm import tqdm
-import copy
-import argparse
-import os, sys, yaml
-
+import matplotlib.pyplot as plt
+import seaborn as sns
 import numpy as np
-import cv2
 import pandas as pd
 import random
-
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torch.cuda.amp import GradScaler, autocast
-from torch.utils.data import Dataset
 
 import albumentations
 from albumentations.pytorch import ToTensorV2
 
 from sklearn.metrics import confusion_matrix, roc_auc_score
 
+from tqdm import tqdm
+import argparse
+import os, sys, yaml
+
 sys.path.append('./')
 from src.logger import setup_logger, LOGGER
-# from src.models import NetCVC as Net, RANZCRResNet200D
+from src.models import Net, RANZCRResNet200D
 from src.losses import LabelSmoothingCrossEntropy
-# from src.dataset import RanzcrCVCDataset1 as RanzcrDataset
+from src.dataset import RanzcrDataset
 from src.utils import plot_sample_images
 from src.augmix import RandomAugMix
 import warnings
+import copy
 
 import time
 from contextlib import contextmanager
@@ -40,150 +39,23 @@ def timer(name):
     print(f'[{name}] done in {time.time() - t0:.0f} s')
 
 
-import timm
+from warmup_scheduler import GradualWarmupScheduler
 
-class Net(nn.Module):
-    def __init__(self, name="resnest101e"):
-        super(Net, self).__init__()
-        self.model = timm.create_model(name, pretrained=True, num_classes=3)
-        self.model.conv1[0] = torch.nn.Conv2d(4, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
-
-    def forward(self, x):
-        x = self.model(x).squeeze(-1)
-        return x
-
-
-class RanzcrDataset(Dataset):
-    def __init__(self,
-                 df,
-                 image_size,
-                 image_folder,
-                 from_image_folder=False,
-                 transform=None,
-                 mode="train",
-                 clahe=False,
-                 mix=False,
-                 padding=25,
-                 ):
-
-        self.df = df.reset_index(drop=True)
-        self.image_size = image_size
-        self.image_folder = image_folder
-        self.from_image_folder = from_image_folder
-        self.transform = transform
-
-        self.mode = mode
-        self.clahe = clahe
-        self.mix = mix
-        if self.clahe or self.mix:
-            self.clahe_transform = cv2.createCLAHE(clipLimit=10.0, tileGridSize=(16, 16))
-
-        self.cols = [
-            'CVC - Abnormal', 'CVC - Borderline', 'CVC - Normal',
-        ]
-
-        self.shared_transform = albumentations.Compose([
-                albumentations.Resize(image_size, image_size),
-                # albumentations.Normalize(
-                #     mean=[0.485, 0.456, 0.406],
-                #     std=[0.229, 0.224, 0.225],
-                # ),
-                ToTensorV2(p=1)
-            ])
-        self.padding = padding
-
-    def __len__(self):
-        return self.df.shape[0]
-
-    def __getitem__(self, index):
-        row = self.df.iloc[index]
-
-        if self.from_image_folder:
-            img_path = os.path.join(self.image_folder, row["StudyInstanceUID"] + ".jpg")
+class GradualWarmupSchedulerV2(GradualWarmupScheduler):
+    def __init__(self, optimizer, multiplier, total_epoch, after_scheduler=None):
+        super(GradualWarmupSchedulerV2, self).__init__(optimizer, multiplier, total_epoch, after_scheduler)
+    def get_lr(self):
+        if self.last_epoch > self.total_epoch:
+            if self.after_scheduler:
+                if not self.finished:
+                    self.after_scheduler.base_lrs = [base_lr * self.multiplier for base_lr in self.base_lrs]
+                    self.finished = True
+                return self.after_scheduler.get_lr()
+            return [base_lr * self.multiplier for base_lr in self.base_lrs]
+        if self.multiplier == 1.0:
+            return [base_lr * (float(self.last_epoch) / self.total_epoch) for base_lr in self.base_lrs]
         else:
-            img_path = row.img_path
-        images = cv2.imread(img_path).astype(np.float32)
-        images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
-
-        # target_mask = cv2.imread('/data/additional/cvc_line_seg/' + row.StudyInstanceUID + '.jpg',
-        #                   cv2.IMREAD_GRAYSCALE)
-        m_num = np.random.randint(3)
-        target_mask = cv2.imread(f'/workspace/output_cvc/cvc_exp009_test{m_num}/save_mask/' + row.StudyInstanceUID + '.png',
-                                 cv2.IMREAD_GRAYSCALE)
-
-        target_mask = cv2.resize(target_mask, (images.shape[1], images.shape[0]))
-        target_mask = (target_mask > 127) * 1
-
-        mask = cv2.imread('/data/additional/train_lung_masks/train_lung_masks/' + row.StudyInstanceUID + '.jpg',
-                          cv2.IMREAD_GRAYSCALE)
-        mask = cv2.resize(mask, (images.shape[1], images.shape[0]))
-        mask = (mask > 127) * 1
-
-        mask = np.array([
-            mask,
-            target_mask
-        ]).transpose(1, 2, 0)
-
-        if self.clahe:
-            single_channel = images[:, :, 0].astype(np.uint8)
-            single_channel = self.clahe_transform.apply(single_channel)
-            images = np.array([
-                single_channel,
-                single_channel,
-                single_channel
-            ]).transpose(1, 2, 0)
-        elif self.mix:
-            single_channel = images[:, :, 0].astype(np.uint8)
-            clahe_channel = self.clahe_transform.apply(single_channel)
-            hist_channel = cv2.equalizeHist(single_channel)
-            images = np.array([
-                single_channel,
-                clahe_channel,
-                hist_channel
-            ]).transpose(1, 2, 0)
-
-        if self.transform is not None:
-            transformed = self.transform(image=images.astype(np.uint8), mask=mask.astype(np.uint8))
-            images = transformed['image']
-            mask = transformed['mask']
-        # else:
-        #     images = images.transpose(2, 0, 1)
-
-        # normalize image
-        # images = images / 255
-        # image net normalize
-        # images = (images - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
-
-        # lung crop
-        x0x1 = np.where(mask[:, :, 0].max(0) == 1)[0]
-        y0y1 = np.where(mask[:, :, 0].max(1) == 1)[0]
-        x0 = np.max([x0x1[0] - self.padding, 0])
-        x1 = np.min([x0x1[-1] + self.padding, mask.shape[1]])
-        y0 = np.max([y0y1[0] - self.padding, 0])
-        y1 = np.min([y0y1[-1] + self.padding, mask.shape[0]])
-
-        images = images[y0:y1, x0:x1]
-        mask = mask[y0:y1, x0:x1]
-
-        transformed = self.shared_transform(image=images, mask=mask)
-        images = transformed['image'] / 255
-        mask = transformed['mask']
-
-        # inputにマスクを足す
-        images = torch.cat([images, mask[:, :, 1].unsqueeze(0)], axis=0)
-
-        if self.mode == "train":
-            label = row[self.cols].values.astype(np.float16)
-            return {
-                # "image": torch.tensor(images, dtype=torch.float),
-                "image": images,
-                "target": torch.tensor(label, dtype=torch.float),
-                # "mask": mask[:, :, 1]
-            }
-        else:
-            return {
-                "image": torch.tensor(images, dtype=torch.float)
-            }
+            return [base_lr * ((self.multiplier - 1.) * self.last_epoch / self.total_epoch + 1.) for base_lr in self.base_lrs]
 
 
 def seed_torch(seed=516):
@@ -246,10 +118,12 @@ def forward_test(data, model, device, criterion, mode="train"):
     return loss, pred.detach().cpu().numpy().tolist(),\
            targets.cpu().numpy().tolist(), pred_labels.detach().cpu().numpy().tolist()
 
+
+
 def get_train_transforms(image_size):
     return albumentations.Compose([
-           albumentations.ShiftScaleRotate(shift_limit=0.05, scale_limit=0., rotate_limit=30, p=0.8),
-           albumentations.RandomResizedCrop(image_size, image_size, scale=(0.7, 1), p=0.5),
+           albumentations.ShiftScaleRotate(p=0.5),
+           albumentations.RandomResizedCrop(image_size, image_size, scale=(0.7, 1), p=1),
            albumentations.HorizontalFlip(p=0.5),
            albumentations.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=10, val_shift_limit=10, p=0.7),
            albumentations.RandomBrightnessContrast(brightness_limit=(-0.2,0.2), contrast_limit=(-0.2, 0.2), p=0.7),
@@ -265,7 +139,7 @@ def get_train_transforms(image_size):
                albumentations.MotionBlur(),
                albumentations.MedianBlur(),
            ], p=0.2),
-
+          albumentations.Resize(image_size, image_size),
           # albumentations.OneOf([
           #     albumentations.augmentations.transforms.JpegCompression(),
           #     albumentations.augmentations.transforms.Downscale(scale_min=0.1, scale_max=0.15),
@@ -273,31 +147,29 @@ def get_train_transforms(image_size):
           # albumentations.imgaug.transforms.IAAPiecewiseAffine(p=0.2),
           # albumentations.imgaug.transforms.IAASharpen(p=0.2),
           albumentations.Cutout(max_h_size=int(image_size * 0.1), max_w_size=int(image_size * 0.1), num_holes=5, p=0.5),
-        # albumentations.Resize(image_size, image_size),
-        #   albumentations.Normalize(
-        #       mean=[0.485, 0.456, 0.406],
-        #       std=[0.229, 0.224, 0.225],
-        #   ),
-        #   ToTensorV2(p=1)
+          albumentations.Normalize(
+              mean=[0.485, 0.456, 0.406],
+              std=[0.229, 0.224, 0.225],
+          ),
+          ToTensorV2(p=1)
 ])
 
 
 
 def get_val_transforms(image_size):
-    return None
-    # return albumentations.Compose([
-    #     albumentations.Resize(image_size, image_size),
-    #     # albumentations.CenterCrop(image_size, image_size, p=1),
-    #     albumentations.Normalize(
-    #         mean=[0.485, 0.456, 0.406],
-    #         std=[0.229, 0.224, 0.225],
-    #     ),
-    #     ToTensorV2(p=1)
-
+    return albumentations.Compose([
+        albumentations.Resize(image_size, image_size),
+        albumentations.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+        ToTensorV2(p=1)
+])
 
 
 if __name__ == "__main__":
     print('Start!!!')
+    os.environ["L5KIT_DATA_FOLDER"] = "/data/"
     warnings.simplefilter('ignore')
 
     parser = argparse.ArgumentParser(description="training")
@@ -314,12 +186,12 @@ if __name__ == "__main__":
     else:
         print('Error: No such yaml file')
         sys.exit()
-    # seed_everything
+    # seed_everythin
     seed_torch()
 
     # output
     exp_name = cfg["exp_name"]  # os.path.splitext(os.path.basename(__file__))[0]
-    output_path = os.path.join("/workspace/output_cvc", exp_name)
+    output_path = os.path.join("/workspace/output", exp_name)
     # path
     model_path = output_path + "/model"
     plot_path = output_path + "/plot"
@@ -361,7 +233,7 @@ if __name__ == "__main__":
     img_size = cfg["img_size"]
     batch_size = cfg["batch_size"]
     n_workers = cfg["n_workers"]
-    n_epochs = cfg["n_epochs"]
+    n_epochs = 2 #cfg["n_epochs"]
     start_epoch = cfg["start_epoch"]
     transform = cfg["transform"]
     hold_out = cfg["hold_out"]
@@ -369,21 +241,11 @@ if __name__ == "__main__":
     early_stopping_steps = cfg["early_stopping_steps"]
     freeze_bn = cfg["freeze_bn"]
     clahe = cfg["clahe"]
-    mix = cfg["mix"]
-    img_dir = cfg["img_dir"]
-
-    cols = [
-        'CVC - Abnormal', 'CVC - Borderline', 'CVC - Normal',
-    ]
-
-    df_anot = pd.read_csv('/data/train_annotations.csv')
-    anot_index = df_anot[df_anot.label.str.contains('CVC')].StudyInstanceUID.unique()
 
     #######################################
     ## CV
     #######################################
     df = pd.read_csv(cfg["df_train_path"])
-    # df = df[df.StudyInstanceUID.isin(anot_index)].reset_index()
 
     cv_list = hold_out if hold_out else [0, 1, 2, 3, 4]
     oof = np.zeros((len(df), 11))
@@ -410,16 +272,16 @@ if __name__ == "__main__":
         val_transform = get_val_transforms(img_size)
 
         train_dataset = RanzcrDataset(df=df_train, image_size=img_size,
-                                      image_folder=img_dir, from_image_folder=True,
-                                      transform=train_transform, mode="train", clahe=clahe, mix=mix)
+                                      image_folder="/data/train_images",
+                                      transform=train_transform, mode="train")
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
                                       pin_memory=False, num_workers=n_workers, drop_last=True)
         # plot sample image
         # plot_sample_images(train_dataset, sample_img_path, "train", normalize="imagenet")
 
         val_dataset = RanzcrDataset(df=df_val, image_size=img_size,
-                                    image_folder=img_dir, from_image_folder=True,
-                                    transform=val_transform, mode="train", clahe=clahe, mix=mix)
+                                    image_folder="/data/train_images",
+                                    transform=val_transform, mode="train", clahe=clahe)
         val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False,
                                     pin_memory=False, num_workers=n_workers, drop_last=False)
 
@@ -427,11 +289,10 @@ if __name__ == "__main__":
 
         # ==== INIT MODEL
         device = torch.device(device)
-        model = Net(model_name).to(device)
-        # if model_name == "resnet200d":
-        #     model = RANZCRResNet200D().to(device)
-        # else:
-        #     model = Net(model_name).to(device)
+        if model_name == "resnet200d":
+            model = RANZCRResNet200D().to(device)
+        else:
+            model = Net(model_name).to(device)
         load_checkpoint = cfg["load_checkpoint"][cv]
         LOGGER.info("-" * 10)
         if os.path.exists(load_checkpoint):
@@ -445,7 +306,7 @@ if __name__ == "__main__":
             LOGGER.info(f"Training from scratch..")
         LOGGER.info("-" * 10)
 
-        optimizer = optim.Adam(model.parameters(), lr=1e-4, eps=1e-7)
+        optimizer = optim.Adam(model.parameters(), lr=1e-5, eps=1e-7)
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=1e-7)
 
 
@@ -453,7 +314,7 @@ if __name__ == "__main__":
         # optimizer = optim.Adam(model.parameters(), lr=(1e-4/3) / 10)
         # scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, n_epochs, eta_min=1e-7)
         # scheduler_warmup = GradualWarmupSchedulerV2(optimizer, multiplier=10, total_epoch=1,
-        #                                            after_scheduler=scheduler_cosine)
+         #                                            after_scheduler=scheduler_cosine)
 
         # criterion = LabelSmoothingCrossEntropy()
         criterion = nn.BCEWithLogitsLoss(reduction='none')
@@ -465,9 +326,9 @@ if __name__ == "__main__":
         best_epoch = 0
         early_stopping_cnt = 0
 
-        for e in range(start_epoch , start_epoch + n_epochs):
+        for e in [0]:#range(start_epoch , start_epoch + n_epochs):
 
-            if e > 0:
+            if e > 10:
 
                 # warmup
                 # scheduler_warmup.step(e - 1)
@@ -531,7 +392,7 @@ if __name__ == "__main__":
                 if debug:
                     targets_list = np.random.random(pred_list.shape)
                     targets_list = np.where(targets_list>0.5, 1, 0)
-                for i in range(len(cols)):
+                for i in range(11):
                     mean_roc.append(roc_auc_score(targets_list[:, i], pred_list[:, i]))
                 mean_roc = np.mean(mean_roc)
 
@@ -576,7 +437,7 @@ if __name__ == "__main__":
             if debug:
                 targets_list = np.random.random(pred_list.shape)
                 targets_list = np.where(targets_list>0.5, 1, 0)
-            for i in range(len(cols)):
+            for i in range(11):
                 each_roc.append(roc_auc_score(targets_list[:, i], pred_list[:, i]))
             mean_roc = np.mean(each_roc)
 
@@ -588,20 +449,30 @@ if __name__ == "__main__":
             writer.add_scalar(f"AUC/eval_cv{cv}", mean_roc, global_step=e)
 
 
-            for n_c, c in enumerate(cols):
-                writer.add_scalar(f"{c}/train_cv{cv}", each_roc[n_c], global_step=e)
+            writer.add_scalar(f"ETT_Abnormal/train_cv{cv}", each_roc[0], global_step=e)
+            writer.add_scalar(f"ETT_Borderline/train_cv{cv}", each_roc[1], global_step=e)
+            writer.add_scalar(f"ETT_Normal/train_cv{cv}", each_roc[2], global_step=e)
+            writer.add_scalar(f"NGT_Abnormal/train_cv{cv}", each_roc[3], global_step=e)
+            writer.add_scalar(f"NGT_Borderline/train_cv{cv}", each_roc[4], global_step=e)
+            writer.add_scalar(f"NGT_IncompletelyImaged/train_cv{cv}", each_roc[5], global_step=e)
+            writer.add_scalar(f"NGT_Normal/train_cv{cv}", each_roc[6], global_step=e)
+            writer.add_scalar(f"CVC_Abnormal/train_cv{cv}", each_roc[7], global_step=e)
+            writer.add_scalar(f"CVC_Borderline/train_cv{cv}", each_roc[8], global_step=e)
+            writer.add_scalar(f"CVC_Normal/train_cv{cv}", each_roc[9], global_step=e)
+            writer.add_scalar(f"SwanGanzCatheterPresent/train_cv{cv}", each_roc[10], global_step=e)
 
+
+            LOGGER.info('Saving model ...')
+            # model_save_path = os.path.join(model_path, f"cv{cv}_weight_checkpoint{e}.pth")
+            #
+            # torch.save({
+            #     "state_dict": model.state_dict(),
+            # }, model_save_path)
+            #
             if best < mean_roc:
                 LOGGER.info(f'Best score update: {best:.5f} --> {mean_roc:.5f}')
                 best = mean_roc
                 best_epoch = e
-
-                LOGGER.info('Saving model ...')
-                model_save_path = os.path.join(model_path, f"cv{cv}_weight_checkpoint{e}.pth")
-
-                torch.save({
-                    "state_dict": model.state_dict(),
-                }, model_save_path)
 
                 try:
                     if debug:
@@ -627,31 +498,41 @@ if __name__ == "__main__":
         best_eval_score_list.append(best)
         writer.close()
 
+    #######################################
+    ## Save oof
+    #######################################
+    np.save(os.path.join(oof_path, "oof"), oof)
+    LOGGER.info(f'Mean of best auc score: {np.mean(best_eval_score_list)}')
+
+    pred_list = oof
+    cols = [
+        'ETT - Abnormal', 'ETT - Borderline',
+        'ETT - Normal', 'NGT - Abnormal', 'NGT - Borderline',
+        'NGT - Incompletely Imaged', 'NGT - Normal', 'CVC - Abnormal',
+        'CVC - Borderline', 'CVC - Normal', 'Swan Ganz Catheter Present'
+    ]
+    targets_list = df.loc[:, cols].values
+    each_roc = []
+    if debug:
+        targets_list = np.random.random(pred_list.shape)
+        targets_list = np.where(targets_list > 0.5, 1, 0)
+    for i in range(11):
+        each_roc.append(roc_auc_score(targets_list[:, i], pred_list[:, i]))
+    mean_roc = np.mean(each_roc)
+
+    LOGGER.info('-' * 20)
+    LOGGER.info(f'Oof score: {mean_roc}')
+    LOGGER.info(f'ETT_Abnormal score: {each_roc[0]}')
+    LOGGER.info(f'ETT_Borderline score: {each_roc[1]}')
+    LOGGER.info(f'ETT_Normal score: {each_roc[2]}')
+    LOGGER.info(f'NGT_Abnormal score: {each_roc[3]}')
+    LOGGER.info(f'NGT_Borderline score: {each_roc[4]}')
+    LOGGER.info(f'NGT_IncompletelyImaged score: {each_roc[5]}')
+    LOGGER.info(f'NGT_Normal score: {each_roc[6]}')
+    LOGGER.info(f'CVC_Abnormal score: {each_roc[7]}')
+    LOGGER.info(f'CVC_Borderline score: {each_roc[8]}')
+    LOGGER.info(f'CVC_Normal score: {each_roc[9]}')
+    LOGGER.info(f'SwanGanzCatheterPresent score: {each_roc[10]}')
+    LOGGER.info('-' * 20)
 
 
-    if len(cv_list) == 5:
-        #######################################
-        ## Save oof
-        #######################################
-        np.save(os.path.join(oof_path, "oof"), oof)
-        LOGGER.info(f'Mean of best auc score: {np.mean(best_eval_score_list)}')
-
-        pred_list = oof
-        targets_list = df.loc[:, cols].values
-        each_roc = []
-        if debug:
-            targets_list = np.random.random(pred_list.shape)
-            targets_list = np.where(targets_list > 0.5, 1, 0)
-        for i in range(len(cols)):
-            each_roc.append(roc_auc_score(targets_list[:, i], pred_list[:, i]))
-        mean_roc = np.mean(each_roc)
-
-        LOGGER.info('-' * 20)
-        LOGGER.info(f'Oof score: {mean_roc}')
-        for n_c, c in enumerate(cols):
-            LOGGER.info(f'{c} score: {each_roc[n_c]}')
-        LOGGER.info('-' * 20)
-
-    LOGGER.info('#'*20)
-    LOGGER.info('# End')
-    LOGGER.info('#'*20)

@@ -1,10 +1,10 @@
 debug: false
-exp_name: "cvc_exp010"
+exp_name: "cvc_exp107"
 #model_name: "resnest101e"
-model_name: "resnest50d"
+model_name: "resnet200d"
 device_id: 0
-batch_size: 32
-img_size: 512
+batch_size: 8
+img_size: 600
 n_workers: 4
 n_epochs: 30
 start_epoch: 1
@@ -27,7 +27,7 @@ df_train_path: "/data/df_train3.csv"
 img_dir: "/data/train512"
 
 accumulation_steps: 1
-early_stopping_steps: 5
+early_stopping_steps: 4
 freeze_bn: false
 
 clahe: false

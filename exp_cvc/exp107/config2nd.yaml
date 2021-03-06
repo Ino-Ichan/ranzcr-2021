@@ -1,17 +1,17 @@
 debug: false
-exp_name: "cvc_exp010"
+exp_name: "cvc_exp007_2nd"
 #model_name: "resnest101e"
 model_name: "resnest50d"
 device_id: 0
-batch_size: 32
+batch_size: 24
 img_size: 512
 n_workers: 4
 n_epochs: 30
 start_epoch: 1
 transform: true
 load_checkpoint:
-  - ""
-  - ""
+  - "/workspace/output_cvc/cvc_exp007/model/cv0_weight_checkpoint14.pth"
+  - "/workspace/output_cvc/cvc_exp007/model/cv1_weight_checkpoint15.pth"
   - ""
   - ""
   - ""
@@ -19,9 +19,9 @@ load_checkpoint:
 hold_out:
   - 0
   - 1
-  - 2
-  - 3
-  - 4
+#  - 2
+#  - 3
+#  - 4
 
 df_train_path: "/data/df_train3.csv"
 img_dir: "/data/train512"

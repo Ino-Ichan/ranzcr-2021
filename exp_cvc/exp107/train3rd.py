@@ -42,15 +42,39 @@ def timer(name):
 
 import timm
 
+# class Net(nn.Module):
+#     def __init__(self, name="resnest101e"):
+#         super(Net, self).__init__()
+#         self.model = timm.create_model(name, pretrained=True, num_classes=3)
+#         self.model.conv1[0] = torch.nn.Conv2d(4, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+#
+#     def forward(self, x):
+#         x = self.model(x).squeeze(-1)
+#         return x
+
+class Net1st(nn.Module):
+    def __init__(self, premodel):
+        super(Net1st, self).__init__()
+        self.middle = nn.Sequential(*list(premodel.model.children())[:-2])
+
+    def forward(self, x):
+        x = self.middle(x).reshape(x.shape[0], -1)
+        return x
+
+
 class Net(nn.Module):
     def __init__(self, name="resnest101e"):
         super(Net, self).__init__()
-        self.model = timm.create_model(name, pretrained=True, num_classes=3)
-        self.model.conv1[0] = torch.nn.Conv2d(4, 32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+        model = timm.create_model(name, pretrained=True, num_classes=3)
+        self.middle = nn.Sequential(*list(model.children())[:-2])
+        self.gap = model.global_pool
+        self.fc = model.fc
 
     def forward(self, x):
-        x = self.model(x).squeeze(-1)
-        return x
+        mid = self.middle(x)
+        x = self.gap(mid)
+        x = self.fc(x)
+        return mid.reshape(x.shape[0], -1), x.squeeze(-1)
 
 
 class RanzcrDataset(Dataset):
@@ -105,19 +129,17 @@ class RanzcrDataset(Dataset):
         images = cv2.imread(img_path).astype(np.float32)
         images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
 
-        # target_mask = cv2.imread('/data/additional/cvc_line_seg/' + row.StudyInstanceUID + '.jpg',
-        #                   cv2.IMREAD_GRAYSCALE)
-        m_num = np.random.randint(3)
-        target_mask = cv2.imread(f'/workspace/output_cvc/cvc_exp009_test{m_num}/save_mask/' + row.StudyInstanceUID + '.png',
-                                 cv2.IMREAD_GRAYSCALE)
-
-        target_mask = cv2.resize(target_mask, (images.shape[1], images.shape[0]))
-        target_mask = (target_mask > 127) * 1
-
         mask = cv2.imread('/data/additional/train_lung_masks/train_lung_masks/' + row.StudyInstanceUID + '.jpg',
                           cv2.IMREAD_GRAYSCALE)
         mask = cv2.resize(mask, (images.shape[1], images.shape[0]))
         mask = (mask > 127) * 1
+
+        target_mask = cv2.imread('/data/additional/cvc_line_seg/' + row.StudyInstanceUID + '.jpg',
+                                 cv2.IMREAD_GRAYSCALE)
+        if target_mask is None:
+            target_mask = mask
+        target_mask = cv2.resize(target_mask, (images.shape[1], images.shape[0]))
+        target_mask = (target_mask > 127) * 1
 
         mask = np.array([
             mask,
@@ -170,13 +192,14 @@ class RanzcrDataset(Dataset):
         mask = transformed['mask']
 
         # inputにマスクを足す
-        images = torch.cat([images, mask[:, :, 1].unsqueeze(0)], axis=0)
+        images_1st = torch.cat([images, mask[:, :, 1].unsqueeze(0)], axis=0)
 
         if self.mode == "train":
             label = row[self.cols].values.astype(np.float16)
             return {
                 # "image": torch.tensor(images, dtype=torch.float),
                 "image": images,
+                "image_1st": images_1st,
                 "target": torch.tensor(label, dtype=torch.float),
                 # "mask": mask[:, :, 1]
             }
@@ -217,10 +240,14 @@ def set_bn_eval(m):
 def forward(data, model, device, criterion, mode="train"):
     inputs = data["image"].to(device)
     targets = data["target"].to(device)
-    pred = model(inputs)
+
+    mid, pred = model(inputs)
+
+
     pred_labels = pred.sigmoid()
 
-    loss = criterion(pred, targets).mean()
+    loss_label = criterion(pred, targets).mean()
+    loss = loss_label
     # loss = ousm_loss(loss, 3).mean()
 
     return loss, pred.detach().cpu().numpy().tolist(),\
@@ -445,7 +472,7 @@ if __name__ == "__main__":
             LOGGER.info(f"Training from scratch..")
         LOGGER.info("-" * 10)
 
-        optimizer = optim.Adam(model.parameters(), lr=1e-4, eps=1e-7)
+        optimizer = optim.Adam(model.parameters(), lr=1e-6, eps=1e-7)
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=1e-7)
 
 
@@ -558,7 +585,7 @@ if __name__ == "__main__":
                 if debug:
                     if step_eval == 2:
                         break
-                loss, pred, targets, pred_labels = forward_test(data, model, device, criterion)
+                loss, pred, targets, pred_labels = forward(data, model, device, criterion)
                 losses_eval.append(loss.item())
                 pred_list.extend(pred_labels)
                 targets_list.extend(targets)

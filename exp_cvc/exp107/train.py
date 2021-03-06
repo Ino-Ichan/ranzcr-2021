@@ -105,12 +105,8 @@ class RanzcrDataset(Dataset):
         images = cv2.imread(img_path).astype(np.float32)
         images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
 
-        # target_mask = cv2.imread('/data/additional/cvc_line_seg/' + row.StudyInstanceUID + '.jpg',
-        #                   cv2.IMREAD_GRAYSCALE)
-        m_num = np.random.randint(3)
-        target_mask = cv2.imread(f'/workspace/output_cvc/cvc_exp009_test{m_num}/save_mask/' + row.StudyInstanceUID + '.png',
-                                 cv2.IMREAD_GRAYSCALE)
-
+        target_mask = cv2.imread('/data/additional/cvc_line_seg/' + row.StudyInstanceUID + '.jpg',
+                          cv2.IMREAD_GRAYSCALE)
         target_mask = cv2.resize(target_mask, (images.shape[1], images.shape[0]))
         target_mask = (target_mask > 127) * 1
 
@@ -383,7 +379,7 @@ if __name__ == "__main__":
     ## CV
     #######################################
     df = pd.read_csv(cfg["df_train_path"])
-    # df = df[df.StudyInstanceUID.isin(anot_index)].reset_index()
+    df = df[df.StudyInstanceUID.isin(anot_index)].reset_index()
 
     cv_list = hold_out if hold_out else [0, 1, 2, 3, 4]
     oof = np.zeros((len(df), 11))
